@@ -23,6 +23,12 @@ class ModelConfig(BaseModel):
     )
     supports_thinking: bool = Field(default_factory=lambda: False, description="Whether the model supports thinking")
     supports_reasoning_effort: bool = Field(default_factory=lambda: False, description="Whether the model supports reasoning effort")
+    supports_vision: bool = Field(default_factory=lambda: False, description="Whether the model supports vision/image inputs")
+    supports_json_output: bool = Field(default_factory=lambda: False, description="Whether the model supports JSON Output (response_format=json_object)")
+    supports_prefix_continuation: bool = Field(default_factory=lambda: False, description="Whether the model supports chat prefix continuation (Beta)")
+    supports_fim: bool = Field(default_factory=lambda: False, description="Whether the model supports FIM completion (Beta, non-thinking mode only)")
+    context_window: int | None = Field(default=None, description="Informational context window size in tokens")
+    max_output_length: int | None = Field(default=None, description="Informational maximum output length in tokens")
     when_thinking_enabled: dict | None = Field(
         default_factory=lambda: None,
         description="Extra settings to be passed to the model when thinking is enabled",
@@ -31,7 +37,6 @@ class ModelConfig(BaseModel):
         default_factory=lambda: None,
         description="Extra settings to be passed to the model when thinking is disabled",
     )
-    supports_vision: bool = Field(default_factory=lambda: False, description="Whether the model supports vision/image inputs")
     stream_chunk_timeout: float | None = Field(
         default=None,
         description=(

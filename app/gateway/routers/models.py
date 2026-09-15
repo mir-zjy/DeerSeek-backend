@@ -16,6 +16,30 @@ class ModelResponse(BaseModel):
     description: str | None = Field(None, description="Model description")
     supports_thinking: bool = Field(default=False, description="Whether model supports thinking mode")
     supports_reasoning_effort: bool = Field(default=False, description="Whether model supports reasoning effort")
+    supports_vision: bool = Field(default=False, description="Whether model supports vision/image inputs")
+    supports_json_output: bool = Field(default=False, description="Whether model supports JSON Output")
+    supports_prefix_continuation: bool = Field(default=False, description="Whether model supports chat prefix continuation (Beta)")
+    supports_fim: bool = Field(default=False, description="Whether model supports FIM completion (Beta, non-thinking only)")
+    context_window: int | None = Field(None, description="Context window size in tokens")
+    max_output_length: int | None = Field(None, description="Maximum output length in tokens")
+
+
+def _to_model_response(model) -> ModelResponse:
+    """将 ModelConfig 序列化为前端展示用的 ModelResponse（不含敏感字段）。"""
+    return ModelResponse(
+        name=model.name,
+        model=model.model,
+        display_name=model.display_name,
+        description=model.description,
+        supports_thinking=model.supports_thinking,
+        supports_reasoning_effort=model.supports_reasoning_effort,
+        supports_vision=model.supports_vision,
+        supports_json_output=model.supports_json_output,
+        supports_prefix_continuation=model.supports_prefix_continuation,
+        supports_fim=model.supports_fim,
+        context_window=model.context_window,
+        max_output_length=model.max_output_length,
+    )
 
 
 class TokenUsageResponse(BaseModel):
@@ -73,17 +97,7 @@ async def list_models(config: AppConfig = Depends(get_config)) -> ModelsListResp
         }
         ```
     """
-    models = [
-        ModelResponse(
-            name=model.name,
-            model=model.model,
-            display_name=model.display_name,
-            description=model.description,
-            supports_thinking=model.supports_thinking,
-            supports_reasoning_effort=model.supports_reasoning_effort,
-        )
-        for model in config.models
-    ]
+    models = [_to_model_response(model) for model in config.models]
     return ModelsListResponse(
         models=models,
         token_usage=TokenUsageResponse(enabled=config.token_usage.enabled),
@@ -122,11 +136,4 @@ async def get_model(model_name: str, config: AppConfig = Depends(get_config)) ->
     if model is None:
         raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
 
-    return ModelResponse(
-        name=model.name,
-        model=model.model,
-        display_name=model.display_name,
-        description=model.description,
-        supports_thinking=model.supports_thinking,
-        supports_reasoning_effort=model.supports_reasoning_effort,
-    )
+    return _to_model_response(model)

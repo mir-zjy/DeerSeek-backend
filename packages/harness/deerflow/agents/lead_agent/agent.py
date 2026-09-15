@@ -417,6 +417,9 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
 
     thinking_enabled = cfg.get("thinking_enabled", True)
     reasoning_effort = cfg.get("reasoning_effort", None)
+    json_output_enabled = cfg.get("json_output_enabled", False)
+    prefix_continuation_enabled = cfg.get("prefix_continuation_enabled", False)
+    fim_enabled = cfg.get("fim_enabled", False)
     requested_model_name: str | None = cfg.get("model_name") or cfg.get("model")
     is_plan_mode = cfg.get("is_plan_mode", False)
     subagent_enabled = cfg.get("subagent_enabled", False)
@@ -439,6 +442,20 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
     if thinking_enabled and not model_config.supports_thinking:
         logger.warning(f"Thinking mode is enabled but model '{model_name}' does not support it; fallback to non-thinking mode.")
         thinking_enabled = False
+    # FIM 补全（Beta）仅支持非思考模式，开启时强制关闭思考
+    if fim_enabled:
+        if not model_config.supports_fim:
+            logger.warning(f"FIM completion is enabled but model '{model_name}' does not support it; ignoring.")
+            fim_enabled = False
+        elif thinking_enabled:
+            logger.warning("FIM completion only works in non-thinking mode; disabling thinking for this run.")
+            thinking_enabled = False
+    if json_output_enabled and not model_config.supports_json_output:
+        logger.warning(f"JSON Output is enabled but model '{model_name}' does not support it; ignoring.")
+        json_output_enabled = False
+    if prefix_continuation_enabled and not model_config.supports_prefix_continuation:
+        logger.warning(f"Prefix continuation is enabled but model '{model_name}' does not support it; ignoring.")
+        prefix_continuation_enabled = False
 
     logger.info(
         "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, model_name: %s, is_plan_mode: %s, subagent_enabled: %s, max_concurrent_subagents: %s",
@@ -461,6 +478,9 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
             "model_name": model_name or "default",
             "thinking_enabled": thinking_enabled,
             "reasoning_effort": reasoning_effort,
+            "json_output_enabled": json_output_enabled,
+            "prefix_continuation_enabled": prefix_continuation_enabled,
+            "fim_enabled": fim_enabled,
             "is_plan_mode": is_plan_mode,
             "subagent_enabled": subagent_enabled,
             "tool_groups": agent_config.tool_groups if agent_config else None,
@@ -491,7 +511,15 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
         filtered = filter_tools_by_skill_allowed_tools(raw_tools, skills_for_tool_policy)
         final_tools, setup = assemble_deferred_tools(filtered, enabled=resolved_app_config.tool_search.enabled)
         return create_agent(
-            model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled, app_config=resolved_app_config, attach_tracing=False),
+            model=create_chat_model(
+                name=model_name,
+                thinking_enabled=thinking_enabled,
+                app_config=resolved_app_config,
+                attach_tracing=False,
+                json_output_enabled=json_output_enabled,
+                prefix_continuation_enabled=prefix_continuation_enabled,
+                fim_enabled=fim_enabled,
+            ),
             tools=final_tools,
             middleware=build_middlewares(
                 config,
@@ -518,7 +546,16 @@ def _make_lead_agent(config: RunnableConfig, *, app_config: AppConfig):
     filtered = filter_tools_by_skill_allowed_tools(raw_tools + extra_tools, skills_for_tool_policy)
     final_tools, setup = assemble_deferred_tools(filtered, enabled=resolved_app_config.tool_search.enabled)
     return create_agent(
-        model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled, reasoning_effort=reasoning_effort, app_config=resolved_app_config, attach_tracing=False),
+        model=create_chat_model(
+            name=model_name,
+            thinking_enabled=thinking_enabled,
+            reasoning_effort=reasoning_effort,
+            app_config=resolved_app_config,
+            attach_tracing=False,
+            json_output_enabled=json_output_enabled,
+            prefix_continuation_enabled=prefix_continuation_enabled,
+            fim_enabled=fim_enabled,
+        ),
         tools=final_tools,
         middleware=build_middlewares(
             config,

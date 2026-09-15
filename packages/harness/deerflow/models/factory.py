@@ -79,7 +79,17 @@ def _apply_stream_chunk_timeout_default(model_use_path: str, model_settings_from
     model_settings_from_config["stream_chunk_timeout"] = _DEFAULT_STREAM_CHUNK_TIMEOUT_SECONDS
 
 
-def create_chat_model(name: str | None = None, thinking_enabled: bool = False, *, app_config: AppConfig | None = None, attach_tracing: bool = True, **kwargs) -> BaseChatModel:
+def create_chat_model(
+    name: str | None = None,
+    thinking_enabled: bool = False,
+    *,
+    app_config: AppConfig | None = None,
+    attach_tracing: bool = True,
+    json_output_enabled: bool = False,
+    prefix_continuation_enabled: bool = False,
+    fim_enabled: bool = False,
+    **kwargs,
+) -> BaseChatModel:
     """Create a chat model instance from the config.
 
     Args:
@@ -97,6 +107,13 @@ def create_chat_model(name: str | None = None, thinking_enabled: bool = False, *
             the model) and ``session_id`` / ``user_id`` metadata never reach the trace
             because the model becomes a nested observation whose ``langfuse_*`` keys
             get stripped.
+        json_output_enabled: Force JSON Output (``response_format=json_object``) when
+            the model declares ``supports_json_output``.
+        prefix_continuation_enabled: Enable chat prefix continuation (Beta). DeepSeek
+            beta features require the ``/beta`` base URL; the factory switches it
+            automatically for the patched DeepSeek provider.
+        fim_enabled: Enable FIM completion (Beta). Only meaningful in non-thinking
+            mode; the caller is responsible for disabling thinking.
 
     Returns:
         A chat model instance.
@@ -121,6 +138,11 @@ def create_chat_model(name: str | None = None, thinking_enabled: bool = False, *
             "when_thinking_disabled",
             "thinking",
             "supports_vision",
+            "supports_json_output",
+            "supports_prefix_continuation",
+            "supports_fim",
+            "context_window",
+            "max_output_length",
         },
     )
     # Compute effective when_thinking_enabled by merging in the `thinking` shortcut field.
@@ -161,6 +183,39 @@ def create_chat_model(name: str | None = None, thinking_enabled: bool = False, *
 
     _enable_stream_usage_by_default(model_config.use, model_settings_from_config)
     _apply_stream_chunk_timeout_default(model_config.use, model_settings_from_config)
+
+    # JSON Output: inject response_format=json_object through model_kwargs so it
+    # lands at the top level of the chat-completions payload.
+    if json_output_enabled:
+        if model_config.supports_json_output:
+            merged_model_kwargs = dict(model_settings_from_config.get("model_kwargs") or {})
+            merged_model_kwargs["response_format"] = {"type": "json_object"}
+            model_settings_from_config["model_kwargs"] = merged_model_kwargs
+        else:
+            logger.warning(f"JSON Output requested but model '{name}' does not declare supports_json_output; ignoring.")
+
+    # DeepSeek beta features (chat prefix continuation / FIM) require the /beta
+    # base URL and the patched provider. Switch it automatically when enabled.
+    if prefix_continuation_enabled or fim_enabled:
+        from deerflow.models.patched_deepseek import PatchedChatDeepSeek
+
+        if issubclass(model_class, PatchedChatDeepSeek):
+            base_key = "api_base" if "api_base" in model_settings_from_config else ("base_url" if "base_url" in model_settings_from_config else None)
+            if base_key:
+                base_value = str(model_settings_from_config[base_key]).rstrip("/")
+                # DeepSeek beta 端点为 https://api.deepseek.com/beta（无 /v1 后缀）
+                if base_value.endswith("/v1"):
+                    base_value = base_value[: -len("/v1")]
+                if not base_value.endswith("/beta"):
+                    model_settings_from_config[base_key] = f"{base_value}/beta"
+        if prefix_continuation_enabled:
+            if model_config.supports_prefix_continuation:
+                if issubclass(model_class, PatchedChatDeepSeek):
+                    model_settings_from_config["enable_prefix_continuation"] = True
+            else:
+                logger.warning(f"Prefix continuation requested but model '{name}' does not declare supports_prefix_continuation; ignoring.")
+        if fim_enabled and not model_config.supports_fim:
+            logger.warning(f"FIM completion requested but model '{name}' does not declare supports_fim; ignoring.")
 
     # For Codex Responses API models: map thinking mode to reasoning_effort
     from deerflow.models.openai_codex_provider import CodexChatModel

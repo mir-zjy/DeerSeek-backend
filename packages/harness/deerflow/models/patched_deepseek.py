@@ -11,6 +11,7 @@ from typing import Any
 
 from langchain_core.language_models import LanguageModelInput
 from langchain_deepseek import ChatDeepSeek
+from pydantic import Field
 
 from deerflow.models.assistant_payload_replay import restore_assistant_payloads, restore_reasoning_content
 
@@ -23,6 +24,15 @@ class PatchedChatDeepSeek(ChatDeepSeek):
     version ensures reasoning_content from additional_kwargs is included in the
     request payload.
     """
+
+    enable_prefix_continuation: bool = Field(
+        default=False,
+        description=(
+            "Append a trailing assistant message with prefix=true to the request "
+            "payload so the API continues the assistant turn (DeepSeek 对话前缀续写, Beta). "
+            "Requires the /beta base URL, which the model factory switches automatically."
+        ),
+    )
 
     @classmethod
     def is_lc_serializable(cls) -> bool:
@@ -55,5 +65,14 @@ class PatchedChatDeepSeek(ChatDeepSeek):
             original_messages,
             restore_reasoning_content,
         )
+
+        if self.enable_prefix_continuation:
+            messages = payload.get("messages")
+            if isinstance(messages, list):
+                last = messages[-1] if messages else None
+                # Prefix continuation requires the final message to be an assistant
+                # message marked with prefix=true; the model then continues it.
+                if not (isinstance(last, dict) and last.get("role") == "assistant"):
+                    messages.append({"role": "assistant", "content": "", "prefix": True})
 
         return payload
